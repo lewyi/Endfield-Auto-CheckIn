@@ -1,0 +1,2 @@
+Arknight：Endfield自动每日领取
+需要架设在7*24小时的服务器
