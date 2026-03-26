@@ -234,7 +234,7 @@ class CheckIn(commands.Cog):
     async def daily_checkin_task(self):
         await self.bot.wait_until_ready() # 等待 Bot 完全启动
         await asyncio.sleep(10) # 确保所有 Cog 都已加载
-        channel = self.bot.get_channel(1474299357468823693)
+        channel = self.bot.get_channel()#DIscord Channel ID
         await channel.send("✅ 自动签到任务已启动")
         while True:
             now = datetime.now()  # 服务器本地时间
