@@ -173,36 +173,73 @@ class CheckIn(commands.Cog):
     
     @app_commands.command(name="手动签到", description="进行一次签到")
     async def checkin(self, interaction: discord.Interaction):
-        await interaction.response.send_message("正在处理签到...")
-        with open ("data\\user.txt","r+") as f:
-            for line in f.readlines():
-                ID, cookie = line.split(":")
-                if ID==str(interaction.user.id):
-                    try:
-                        cookie=base64.b64decode(cookie).decode().strip()
-                        result = endfield_checkin(cookie)
-                        embed=discord.Embed(
-                            title="签到结果",
-                            description=result, 
-                            color=discord.Color.random(),
-                        )
-                        await interaction.followup.send(content=f"<@{ID}>",embed=embed)
-                    except Exception as e:
-                        print(f"处理用户 {line} 时发生错误: {e}")
-                        continue
-            del ID,cookie
+        await interaction.response.defer(ephemeral=True)
+        UID=str(interaction.user.id)
+        print(f"用户 {UID} 发起了签到请求")
+        cursor=await self.bot.db.execute("SELECT Cookie FROM User WHERE DiscordID=?", (UID,))
+        rows=await cursor.fetchall()
+        await cursor.close()
+        if not rows:
+            embed=discord.Embed(
+                title="错误",
+                description=f"请先使用 /输入cookie 命令绑定 Cookie", 
+                color=discord.Color.random(),
+            )
+            await interaction.followup.send(embed=embed,ephemeral=True)
+            return
+        
+        for row in rows:
+            try:
+                Cookie=base64.b64decode(row["Cookie"]).decode().strip()
+                result = endfield_checkin(Cookie)
+                if "✅" in result:
+                    embed=discord.Embed(
+                    title="签到结果",
+                    description=f"{result}", 
+                    color=discord.Color.random(),
+                    )
+                    await interaction.followup.send(embed=embed,ephemeral=True)
+                elif "❌" in result:
+                    embed=discord.Embed(
+                    title="错误",
+                    description=f"{result}\n已删除该Cookie", 
+                    color=discord.Color.random(),
+                    )
+                    Cookie=base64.b64encode(Cookie.encode()).decode()
+                    cursor=await self.bot.db.execute("DELETE FROM User where DiscordID=? and Cookie=?",(UID,Cookie,))
+                    await self.bot.db.commit()
+                    await cursor.close()
+                    await interaction.followup.send(embed=embed,ephemeral=True)
+                else:
+                    embed=discord.Embed(
+                    title="签到结果",
+                    description=f"{result}", 
+                    color=discord.Color.random(),
+                    )
+                    await interaction.followup.send(embed=embed,ephemeral=True)
+                    print(f"用户 {UID} 签到结果: {result}")
+            except Exception as e:
+                embed=discord.Embed(
+                title="错误",
+                description=f"签到过程中发生错误: {e}", 
+                color=discord.Color.random(),
+                )
+                await interaction.followup.send(embed=embed,ephemeral=True)
+                print(f"处理用户 {UID} 时发生错误: {e}")
+        
+        del UID,row,Cookie
     #==========================
     #自动签到
     #==========================
     async def daily_checkin_task(self):
         await self.bot.wait_until_ready() # 等待 Bot 完全启动
         await asyncio.sleep(10) # 确保所有 Cog 都已加载
-        channel = self.bot.get_channel()#替换为你的频道ID
+        channel = self.bot.get_channel(1474299357468823693)
         await channel.send("✅ 自动签到任务已启动")
         while True:
             now = datetime.now()  # 服务器本地时间
             # 计算今天或明天的 5 点
-            target = now.replace(hour=23, minute=2, second=0, microsecond=0)
+            target = now.replace(hour=5, minute=30, second=0, microsecond=0)
             if now >= target:
                 target += timedelta(days=1)
             wait_seconds = (target - now).total_seconds()
@@ -218,24 +255,38 @@ class CheckIn(commands.Cog):
             await self.run_daily_checkin()
 
     async def run_daily_checkin(self):
-        channel = self.bot.get_channel() #替换为你的频道ID
+        channel = self.bot.get_channel(1474299357468823693)
         await channel.send("🔄 开始自动签到...")
-        with open ("data\\user.txt","r+") as f:
-            for line in f.readlines():
-                ID, cookie = line.split(":")
-                try:
-                    cookie=base64.b64decode(cookie).decode().strip()
-                    result = endfield_checkin(cookie)
+        cursor=await self.bot.db.execute("SELECT DiscordID,Cookie FROM User")
+        rows=await cursor.fetchall()
+        await cursor.close()
+
+        for row in rows:
+            UID=int(row["DiscordID"])
+            try:
+                Cookie=base64.b64decode(row["Cookie"]).decode().strip()
+                result = endfield_checkin(Cookie)
+                if "✅" in result:
                     embed=discord.Embed(
-                        title="签到结果",
-                        description=result, 
+                        title=f"签到结果",
+                        description=f"{result}", 
                         color=discord.Color.random(),
                     )
-                    await channel.send(content=f"<@{ID}>",embed=embed)
-                except Exception as e:
-                    print(f"处理用户 {line} 时发生错误: {e}")
-                    continue
-            del ID,cookie
+                    await channel.send(f"<@{UID}>",embed=embed)
+                elif "❌" in result:
+                    embed=discord.Embed(
+                    title="错误",
+                    description=f"{result}\n已删除该Cookie", 
+                    color=discord.Color.random(),
+                    )
+                    Cookie=base64.b64encode(Cookie.encode()).decode()
+                    cursor=await self.bot.db.execute("DELETE FROM User where DiscordID=? and Cookie=?",(UID,Cookie,))
+                    await self.bot.db.commit()
+                    await cursor.close()
+                    await channel.send(f"<@{UID}>",embed=embed)
+            except Exception as e:
+                print(f"UID: {UID}发生了错误 {e}")
+                continue
 
 async def setup(bot):
     await bot.add_cog(CheckIn(bot))
